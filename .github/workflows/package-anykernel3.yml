@@ -1,0 +1,70 @@
+name: Package AnyKernel3
+
+on:
+  workflow_dispatch:
+    inputs:
+      kernel_image_url:
+        description: "Optional URL to Image, Image.gz, or Image.lz4"
+        required: false
+        type: string
+      kernel_image_path:
+        description: "Local path to Image, Image.gz, or Image.lz4 in the checked out workspace"
+        required: false
+        default: "out/dist/Image.lz4"
+        type: string
+      device_codename:
+        description: "Device codename label used in zip name"
+        required: false
+        default: "sm8850"
+        type: string
+      device_name:
+        description: "Human readable device name"
+        required: false
+        default: "Xiaomi SM8850"
+        type: string
+      kernel_name:
+        description: "Kernel display name"
+        required: false
+        default: "KokubanKernel-SukiSU-Ultra"
+        type: string
+
+jobs:
+  package:
+    name: Package flashable zip
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install packaging dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git zip curl
+
+      - name: Download kernel image
+        if: ${{ inputs.kernel_image_url != '' }}
+        run: |
+          mkdir -p out/dist
+          curl -L --fail --retry 3 "${{ inputs.kernel_image_url }}" -o "out/dist/$(basename "${{ inputs.kernel_image_url }}")"
+          ls -lah out/dist
+
+      - name: Package AnyKernel3 zip
+        env:
+          KERNEL_IMAGE: ${{ inputs.kernel_image_path }}
+          DEVICE_CODENAME: ${{ inputs.device_codename }}
+          DEVICE_NAME: ${{ inputs.device_name }}
+          KERNEL_NAME: ${{ inputs.kernel_name }}
+        run: |
+          if [ -n "${{ inputs.kernel_image_url }}" ]; then
+            export KERNEL_IMAGE="out/dist/$(basename "${{ inputs.kernel_image_url }}")"
+          fi
+          chmod +x scripts/package_anykernel3.sh
+          scripts/package_anykernel3.sh
+
+      - name: Upload AnyKernel3 zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: anykernel3-flashable-zip
+          path: out/anykernel3-dist/*.zip
+          if-no-files-found: error
