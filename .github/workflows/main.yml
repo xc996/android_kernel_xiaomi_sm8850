@@ -6,12 +6,20 @@ jobs:
   trigger:
     runs-on: ubuntu-latest
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    env:
+      CI_TOKEN: ${{ secrets.CI_TOKEN }}
     steps:
+      - name: Skip when CI_TOKEN is not configured
+        if: env.CI_TOKEN == ''
+        run: |
+          echo "::notice::CI_TOKEN is not configured; skip central build dispatch."
+
       - name: Trigger build in kernel-ci repository
+        if: env.CI_TOKEN != ''
         uses: peter-evans/repository-dispatch@v3
         with:
           repository: YuzakiKokuban/Kokuban_Kernel_CI_Center
-          token: ${{ secrets.CI_TOKEN }}
+          token: ${{ env.CI_TOKEN }}
           event-type: build-kernel
           client-payload: >-
             {
