@@ -76,6 +76,39 @@ jobs:
           test -f drivers/kernelsu/Kconfig
           test -f drivers/kernelsu/Makefile
 
+          python3 - <<'PY'
+          from pathlib import Path
+
+          lsm = Path("KernelSU/kernel/hook/lsm_hook.c")
+          text = lsm.read_text()
+          text = text.replace(
+              "void __init ksu_lsm_hook_init(void)\n{",
+              "#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)\n"
+              "static struct lsm_id ksu_lsmid = {\n"
+              "    .name = \"ksu\",\n"
+              "    .id = 0,\n"
+              "};\n"
+              "#endif\n\n"
+              "void __init ksu_lsm_hook_init(void)\n{",
+          )
+          text = text.replace(
+              "#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0)\n"
+              "    security_add_hooks(ksu_hooks, ARRAY_SIZE(ksu_hooks), \"ksu\");\n"
+              "#else",
+              "#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)\n"
+              "    security_add_hooks(ksu_hooks, ARRAY_SIZE(ksu_hooks), &ksu_lsmid);\n"
+              "#elif LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0)\n"
+              "    security_add_hooks(ksu_hooks, ARRAY_SIZE(ksu_hooks), \"ksu\");\n"
+              "#else",
+          )
+          lsm.write_text(text)
+
+          super_access = Path("KernelSU/kernel/kpm/super_access.c")
+          text = super_access.read_text()
+          text = text.replace("DEFINE_MEMBER(netlink_kernel_cfg, cb_mutex)\n", "")
+          super_access.write_text(text)
+          PY
+
       - name: Build kernel Image
         env:
           ARCH: arm64
