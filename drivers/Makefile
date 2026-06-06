@@ -198,3 +198,6 @@ obj-$(CONFIG_S390)		+= s390/
 
 #Re-Kernel Support
 obj-$(CONFIG_REKERNEL)		+= rekernel/
+
+# SukiSU Ultra
+obj-$(CONFIG_KSU)		+= kernelsu/

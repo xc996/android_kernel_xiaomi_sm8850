@@ -1,0 +1,119 @@
+name: Build SukiSU Ultra AnyKernel3
+
+on:
+  workflow_dispatch:
+    inputs:
+      sukisu_ref:
+        description: "SukiSU Ultra branch, tag, or commit"
+        required: false
+        default: "builtin"
+        type: string
+      jobs:
+        description: "Parallel build jobs"
+        required: false
+        default: "0"
+        type: string
+  push:
+    branches: [ main ]
+    paths:
+      - ".github/workflows/build-sukisu-anykernel3.yml"
+      - "arch/arm64/configs/gki_defconfig"
+      - "drivers/**"
+      - "fs/**"
+      - "include/linux/susfs*.h"
+      - "kernel/**"
+      - "mm/**"
+      - "security/selinux/**"
+      - "scripts/package_anykernel3.sh"
+
+jobs:
+  build:
+    name: Build and package flashable zip
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+
+    env:
+      TOOLCHAIN_DIR: ${{ github.workspace }}/toolchain
+      OUT_DIR: ${{ github.workspace }}/out
+      SUKISU_REF: ${{ inputs.sukisu_ref || 'builtin' }}
+
+    steps:
+      - name: Checkout kernel source
+        uses: actions/checkout@v4
+
+      - name: Install host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            bc bison build-essential cpio curl dwarves flex git jq \
+            libdw-dev libelf-dev libncurses5-dev libssl-dev lld lz4 \
+            pahole p7zip-full python3 unzip zip
+
+      - name: Download Android clang/rust toolchains
+        run: |
+          mkdir -p "$TOOLCHAIN_DIR"
+          cd "$TOOLCHAIN_DIR"
+
+          curl -L --retry 3 -o clang-r536225.zip \
+            https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/clang-r536225.zip
+          curl -L --retry 3 -o rust.zip \
+            https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/rust.zip
+          curl -L --retry 3 -o build-tools.zip \
+            https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/build-tools.zip
+          curl -L --retry 3 -o bindgen.tar.xz \
+            https://github.com/rust-lang/rust-bindgen/releases/download/v0.69.5/bindgen-cli-x86_64-unknown-linux-gnu.tar.xz
+
+          unzip -q clang-r536225.zip
+          unzip -q rust.zip
+          unzip -q build-tools.zip
+          tar -xf bindgen.tar.xz
+
+      - name: Setup SukiSU Ultra source
+        run: |
+          rm -rf KernelSU drivers/kernelsu
+          git clone --depth 1 --branch "$SUKISU_REF" https://github.com/SukiSU-Ultra/SukiSU-Ultra.git KernelSU
+          ln -s ../KernelSU/kernel drivers/kernelsu
+          test -f drivers/kernelsu/Kconfig
+          test -f drivers/kernelsu/Makefile
+
+      - name: Build kernel Image
+        env:
+          ARCH: arm64
+          LLVM: "1"
+          LLVM_IAS: "1"
+          CC: clang
+          LD: ld.lld
+          HOSTCC: clang
+          HOSTCXX: clang++
+          RUSTC: rustc
+          BINDGEN: bindgen
+        run: |
+          jobs="${{ inputs.jobs || '0' }}"
+          if [ "$jobs" = "0" ] || [ -z "$jobs" ]; then
+            jobs="$(nproc)"
+          fi
+
+          export PATH="$TOOLCHAIN_DIR/bin:$TOOLCHAIN_DIR/build-tools/bin:$TOOLCHAIN_DIR/bindgen-cli-x86_64-unknown-linux-gnu:$PATH"
+          make O="$OUT_DIR" gki_defconfig
+          make -j"$jobs" O="$OUT_DIR" Image
+          ls -lh "$OUT_DIR/arch/arm64/boot/Image"
+
+      - name: Package AnyKernel3 zip
+        env:
+          KERNEL_IMAGE: ${{ github.workspace }}/out/arch/arm64/boot/Image
+          DEVICE_CODENAME: sm8850
+          DEVICE_NAME: Xiaomi 17 Series
+          KERNEL_NAME: KokubanKernel-SukiSU-Ultra
+        run: |
+          chmod +x scripts/package_anykernel3.sh
+          scripts/package_anykernel3.sh
+
+      - name: Upload build outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: sukisu-ultra-anykernel3-sm8850
+          path: |
+            out/anykernel3-dist/*.zip
+            out/.config
+            out/vmlinux.symvers
+          if-no-files-found: error
